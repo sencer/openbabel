@@ -112,7 +112,7 @@ namespace OpenBabel
 
     stringstream errorMsg;
 
-    unsigned int natoms;	// [ejk] assumed natoms could not be -ve
+    unsigned int natoms, numfields=0;	// [ejk] assumed natoms could not be -ve
 
     if (!ifs)
       return false; // we're attempting to read past the end of the file
@@ -142,17 +142,42 @@ namespace OpenBabel
                               "Problems reading an XYZ file: Could not read the second line (title/comments).", obWarning);
         return(false);
       }
-    string readTitle(buffer);
-    string::size_type location = readTitle.find("Energy");
-    if (location != string::npos)
-      readTitle.erase(location);
-    Trim(readTitle);
 
-    location = readTitle.find_first_not_of(" \t\n\r");
-    if (location != string::npos)
-      mol.SetTitle(readTitle);
+    if (EQn(buffer,"celldm",6)) {
+      float a, b, c, alpha, beta, gamma;
+      string group = "";
+
+      numfields = sscanf (&(buffer[6]), "%f %f %f %f %f %f", &a, &b, &c, &alpha, &beta, &gamma);
+      OBUnitCell *pCell=new OBUnitCell;
+      if ( numfields == 6)
+      {
+        pCell->SetData(a,b,c,alpha,beta,gamma);
+      }
+      else if ( numfields == 3)
+      {
+        pCell->SetData(a,b,c,90,90,90);
+      }
+      else
+      {
+        obErrorLog.ThrowError(__FUNCTION__,
+                              "Problems reading an XYZ file: Could not read the second line celldm.", obWarning);
+      }
+      pmol->SetData(pCell);
+    }
     else
-      mol.SetTitle(title);
+    {
+      string readTitle(buffer);
+      string::size_type location = readTitle.find("Energy");
+      if (location != string::npos)
+        readTitle.erase(location);
+      Trim(readTitle);
+
+      location = readTitle.find_first_not_of(" \t\n\r");
+      if (location != string::npos)
+        mol.SetTitle(readTitle);
+      else
+        mol.SetTitle(title);
+    }
 
     mol.BeginModify();
 
@@ -288,12 +313,26 @@ namespace OpenBabel
 
     snprintf(buffer, BUFF_SIZE, "%d\n", mol.NumAtoms());
     ofs << buffer;
-    if (fabs(mol.GetEnergy()) > 1.0e-3) // nonzero energy field
-      snprintf(buffer, BUFF_SIZE, "%s\tEnergy: %15.7f\n",
-               mol.GetTitle(), mol.GetEnergy());
+    // my custom format, comment line includes unit cell information
+    if (pmol->HasData(OBGenericDataType::UnitCell))
+      {
+        OBUnitCell *pUC = (OBUnitCell*)pmol->GetData(OBGenericDataType::UnitCell);
+        snprintf(buffer, BUFF_SIZE,
+                  "celldm %14.8f%14.8f%14.8f%9.4f%9.4f%9.4f",
+                  pUC->GetA(), pUC->GetB(), pUC->GetC(),
+                  pUC->GetAlpha(), pUC->GetBeta(), pUC->GetGamma());
+
+        ofs << buffer << endl;
+      }
     else
-      snprintf(buffer, BUFF_SIZE, "%s\n", mol.GetTitle());
-    ofs << buffer;
+    {
+      if (fabs(mol.GetEnergy()) > 1.0e-3) // nonzero energy field
+        snprintf(buffer, BUFF_SIZE, "%s\tEnergy: %15.7f\n",
+                mol.GetTitle(), mol.GetEnergy());
+      else
+        snprintf(buffer, BUFF_SIZE, "%s\n", mol.GetTitle());
+      ofs << buffer;
+    }
 
     FOR_ATOMS_OF_MOL(atom, mol)
       {
